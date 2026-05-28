@@ -2,35 +2,117 @@
 
 import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Escrow, EscrowStatus } from "@/types";
+import { getEscrow } from "@/lib/api";
+import { CheckCircle2, Circle, Clock, Package, Truck, Home } from "lucide-react";
 
-async function fetchTrackingEvents() {
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  return [
-    { time: "09:45", title: "Package received", detail: "The courier picked up the shipment." },
-    { time: "12:20", title: "In transit", detail: "The package is moving through the sorting facility." },
-    { time: "15:10", title: "Out for delivery", detail: "The package is on its final route." },
-  ];
+interface TrackingStage {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  statuses: EscrowStatus[];
 }
 
-export default function TrackingTimeline({ loading = false }: { loading?: boolean }) {
-  const [events, setEvents] = useState<
-    | Array<{ time: string; title: string; detail: string }>
-    | null
-  >(null);
-  const [error, setError] = useState<Error | null>(null);
+const TRACKING_STAGES: TrackingStage[] = [
+  {
+    id: "placed",
+    title: "Order Placed",
+    description: "Your order has been created",
+    icon: Clock,
+    statuses: ["PENDING", "FUNDED", "SHIPPED", "COMPLETED", "RELEASED"],
+  },
+  {
+    id: "confirmed",
+    title: "Payment Confirmed",
+    description: "Payment received and secured in escrow",
+    icon: CheckCircle2,
+    statuses: ["FUNDED", "SHIPPED", "COMPLETED", "RELEASED"],
+  },
+  {
+    id: "shipped",
+    title: "Shipped",
+    description: "Package is on its way",
+    icon: Package,
+    statuses: ["SHIPPED", "COMPLETED", "RELEASED"],
+  },
+  {
+    id: "delivery",
+    title: "Out for Delivery",
+    description: "Package is out for final delivery",
+    icon: Truck,
+    statuses: ["SHIPPED", "COMPLETED", "RELEASED"],
+  },
+  {
+    id: "delivered",
+    title: "Delivered",
+    description: "Package has been delivered",
+    icon: Home,
+    statuses: ["COMPLETED", "RELEASED"],
+  },
+];
 
+interface TrackingTimelineProps {
+  escrowId: string;
+  initialEscrow: Escrow;
+  loading?: boolean;
+}
+
+export default function TrackingTimeline({
+  escrowId,
+  initialEscrow,
+  loading = false,
+}: TrackingTimelineProps) {
+  const [escrow, setEscrow] = useState<Escrow>(initialEscrow);
+  const [error, setError] = useState<Error | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [isRaisingDispute, setIsRaisingDispute] = useState(false);
+
+  // Poll for updates every 30 seconds
   useEffect(() => {
-    fetchTrackingEvents().then(setEvents).catch(setError);
-  }, []);
+    const pollInterval = setInterval(async () => {
+      try {
+        const updatedEscrow = await getEscrow(escrowId);
+        setEscrow(updatedEscrow);
+      } catch (err) {
+        console.error("Failed to poll escrow status:", err);
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [escrowId]);
+
+  const handleConfirmDelivery = async () => {
+    setIsConfirming(true);
+    try {
+      // TODO: Implement API call to confirm delivery
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/escrows/${escrowId}/confirm`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error('Failed to confirm delivery');
+      
+      const updatedEscrow = await response.json();
+      setEscrow(updatedEscrow);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to confirm delivery'));
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  const handleRaiseDispute = () => {
+    // Redirect to dispute page
+    window.location.href = `/dispute/${escrowId}`;
+  };
 
   if (error) throw error;
 
-  if (loading || !events) {
+  if (loading) {
     return (
       <div className="space-y-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        {[...Array(3)].map((_, index) => (
+        {[...Array(5)].map((_, index) => (
           <div key={index} className="flex items-start gap-4">
-            <Skeleton className="h-4 w-14 rounded-full" />
+            <Skeleton className="h-12 w-12 rounded-full" />
             <div className="flex-1 space-y-3">
               <Skeleton className="h-5 w-2/5" />
               <Skeleton className="h-4 w-full" />
@@ -41,17 +123,129 @@ export default function TrackingTimeline({ loading = false }: { loading?: boolea
     );
   }
 
+  const getCurrentStageIndex = (status: EscrowStatus): number => {
+    if (status === "COMPLETED" || status === "RELEASED") return 4;
+    if (status === "SHIPPED") return 2;
+    if (status === "FUNDED") return 1;
+    if (status === "PENDING") return 0;
+    return 0;
+  };
+
+  const currentStageIndex = getCurrentStageIndex(escrow.status);
+  const isShipped = escrow.status === "SHIPPED";
+  const canConfirmDelivery = isShipped;
+  const canRaiseDispute = isShipped; // Assuming dispute window is open when shipped
+
   return (
-    <div className="space-y-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      {events.map((event) => (
-        <div key={event.time} className="flex items-start gap-4">
-          <div className="min-w-[56px] text-sm font-semibold text-zinc-700 dark:text-zinc-300">{event.time}</div>
-          <div>
-            <p className="text-base font-semibold text-zinc-950 dark:text-zinc-100">{event.title}</p>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{event.detail}</p>
-          </div>
+    <div className="space-y-6">
+      {/* Timeline */}
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="mb-6 text-lg font-semibold text-zinc-950 dark:text-zinc-100">
+          Shipment Status
+        </h2>
+        <div className="space-y-6">
+          {TRACKING_STAGES.map((stage, index) => {
+            const isCompleted = index < currentStageIndex;
+            const isCurrent = index === currentStageIndex;
+            const isPending = index > currentStageIndex;
+            const Icon = stage.icon;
+
+            return (
+              <div key={stage.id} className="flex items-start gap-4">
+                {/* Icon */}
+                <div
+                  className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full ${
+                    isCompleted
+                      ? "bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-300"
+                      : isCurrent
+                      ? "bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300"
+                      : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
+                  }`}
+                >
+                  <Icon className="h-6 w-6" />
+                </div>
+
+                {/* Content */}
+                <div className="flex-1">
+                  <p
+                    className={`text-base font-semibold ${
+                      isCompleted || isCurrent
+                        ? "text-zinc-950 dark:text-zinc-100"
+                        : "text-zinc-500 dark:text-zinc-500"
+                    }`}
+                  >
+                    {stage.title}
+                  </p>
+                  <p
+                    className={`mt-1 text-sm ${
+                      isCompleted || isCurrent
+                        ? "text-zinc-600 dark:text-zinc-400"
+                        : "text-zinc-400 dark:text-zinc-600"
+                    }`}
+                  >
+                    {stage.description}
+                  </p>
+                  {isCurrent && escrow.updatedAt && (
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
+                      {new Date(escrow.updatedAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+
+                {/* Status indicator */}
+                {isCompleted && (
+                  <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
+                )}
+                {isCurrent && (
+                  <div className="h-5 w-5 flex-shrink-0">
+                    <div className="h-full w-full animate-pulse rounded-full bg-blue-600 dark:bg-blue-400" />
+                  </div>
+                )}
+                {isPending && (
+                  <Circle className="h-5 w-5 flex-shrink-0 text-zinc-300 dark:text-zinc-700" />
+                )}
+              </div>
+            );
+          })}
         </div>
-      ))}
+      </div>
+
+      {/* Action Buttons */}
+      {(canConfirmDelivery || canRaiseDispute) && (
+        <div className="flex flex-col gap-3 sm:flex-row">
+          {canConfirmDelivery && (
+            <button
+              onClick={handleConfirmDelivery}
+              disabled={isConfirming}
+              className="flex-1 rounded-2xl bg-green-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-green-700 dark:hover:bg-green-800"
+            >
+              {isConfirming ? "Confirming..." : "Confirm Delivery"}
+            </button>
+          )}
+          {canRaiseDispute && (
+            <button
+              onClick={handleRaiseDispute}
+              disabled={isRaisingDispute}
+              className="flex-1 rounded-2xl border-2 border-red-600 bg-transparent px-6 py-3 font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500 dark:text-red-500 dark:hover:bg-red-950"
+            >
+              Raise a Dispute
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Dispute Status */}
+      {escrow.status === "DISPUTED" && (
+        <div className="rounded-3xl border border-yellow-200 bg-yellow-50 p-6 dark:border-yellow-900 dark:bg-yellow-950">
+          <h3 className="mb-2 text-lg font-semibold text-yellow-900 dark:text-yellow-100">
+            Dispute in Progress
+          </h3>
+          <p className="text-sm text-yellow-700 dark:text-yellow-300">
+            A dispute has been raised for this order. Our team is reviewing the case and will
+            resolve it shortly.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
