@@ -28,6 +28,36 @@ describe("BottomNav", () => {
     mockUsePathname.mockReturnValue("/dashboard");
   });
 
+  it("matches snapshot when rendering on dashboard", () => {
+    mockUsePathname.mockReturnValue("/dashboard");
+    const { container } = render(<BottomNav />);
+    expect(container).toMatchSnapshot();
+  });
+
+  it("matches snapshot when rendering on create page", () => {
+    mockUsePathname.mockReturnValue("/create");
+    const { container } = render(<BottomNav />);
+    expect(container).toMatchSnapshot();
+  });
+
+  it("matches snapshot when rendering on tracking page", () => {
+    mockUsePathname.mockReturnValue("/tracking");
+    const { container } = render(<BottomNav />);
+    expect(container).toMatchSnapshot();
+  });
+
+  it("matches snapshot when rendering on profile page", () => {
+    mockUsePathname.mockReturnValue("/profile");
+    const { container } = render(<BottomNav />);
+    expect(container).toMatchSnapshot();
+  });
+
+  it("matches snapshot with nested route", () => {
+    mockUsePathname.mockReturnValue("/dashboard/settings");
+    const { container } = render(<BottomNav />);
+    expect(container).toMatchSnapshot();
+  });
+
   it("renders all 4 navigation items", () => {
     render(<BottomNav />);
     expect(screen.getByLabelText("Dashboard")).toBeInTheDocument();
